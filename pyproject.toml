@@ -1,0 +1,24 @@
+[project]
+name = "stack-try2"
+version = "0.1.0"
+description = "Vector database take-home implementation"
+readme = "AGENTS.md"
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.110,<1.0",
+  "numpy>=1.26,<3.0",
+  "pydantic>=2.11,<3.0",
+  "pydantic-settings>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  ".",
+]
+addopts = "-q"
