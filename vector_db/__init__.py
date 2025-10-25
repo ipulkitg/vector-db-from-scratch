@@ -2,6 +2,18 @@ from .api import create_app
 from .config import Settings
 from .disk_store import DiskVectorStore
 from .entities import BaseEntity, Chunk, Document, Library
+from .exceptions import (
+    ChunkNotFoundError,
+    ConflictError,
+    DimensionMismatchError,
+    DocumentNotFoundError,
+    InvalidSearchParameterError,
+    LibraryNotFoundError,
+    ResourceNotFoundError,
+    StorageError,
+    ValidationError,
+    VectorDBError,
+)
 from .indexes import FlatIndex, RandomProjectionIndex
 from .repositories import (
     ChunkRepository,
@@ -36,6 +48,17 @@ __all__ = [
     "Chunk",
     "Document",
     "Library",
+    # Exceptions
+    "VectorDBError",
+    "ResourceNotFoundError",
+    "LibraryNotFoundError",
+    "DocumentNotFoundError",
+    "ChunkNotFoundError",
+    "ValidationError",
+    "DimensionMismatchError",
+    "InvalidSearchParameterError",
+    "ConflictError",
+    "StorageError",
     # Indexes
     "FlatIndex",
     "RandomProjectionIndex",

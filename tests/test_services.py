@@ -52,10 +52,12 @@ def test_library_service_crud_flow(repositories) -> None:
 
 
 def test_document_service_requires_existing_library(repositories) -> None:
+    from vector_db.exceptions import LibraryNotFoundError
+
     service = DocumentService(repositories["documents"], repositories["libraries"])
     payload = DocumentCreate(library_id=uuid4(), name="Doc")
 
-    with pytest.raises(ValueError, match="Library"):
+    with pytest.raises(LibraryNotFoundError):
         service.create_document(payload)
 
 

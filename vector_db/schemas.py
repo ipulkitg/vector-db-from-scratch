@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Dict, Generic, List, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 MetadataValue = Union[str, int, float, bool]
 Metadata = Dict[str, MetadataValue]
+
+T = TypeVar("T")
 
 
 class LibraryCreate(BaseModel):
@@ -61,6 +63,38 @@ class ChunkSearchRequest(BaseModel):
 class ChunkSearchResult(BaseModel):
     chunk_id: UUID
     distance: float
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper."""
+
+    items: List[T]
+    total: int
+    skip: int
+    limit: int
+    has_more: bool
+
+    @classmethod
+    def paginate(cls, items: List[T], skip: int, limit: int) -> "PaginatedResponse[T]":
+        """Create a paginated response from a list of items."""
+        total = len(items)
+        paginated_items = items[skip : skip + limit]
+        has_more = skip + limit < total
+        return cls(items=paginated_items, total=total, skip=skip, limit=limit, has_more=has_more)
+
+
+class ChunkBatchCreate(BaseModel):
+    """Batch creation of chunks for a single document."""
+
+    document_id: UUID
+    chunks: List[ChunkCreate] = Field(..., min_length=1, max_length=1000)
+
+
+class ChunkBatchCreateResult(BaseModel):
+    """Result of batch chunk creation."""
+
+    created_count: int
+    chunk_ids: List[UUID]
 
 
 if TYPE_CHECKING:
@@ -145,6 +179,9 @@ __all__ = [
     "ChunkResponse",
     "ChunkSearchRequest",
     "ChunkSearchResult",
+    "PaginatedResponse",
+    "ChunkBatchCreate",
+    "ChunkBatchCreateResult",
     "library_to_response",
     "document_to_response",
     "chunk_to_response",

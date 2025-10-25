@@ -265,8 +265,7 @@ class VectorStore:
         return True
 
     def _build_index(self, library: Library) -> VectorIndex:
-        if library.index_kind == "flat":
-            return FlatIndex(dimension=library.embedding_dimension)
-        if library.index_kind == "random_projection":
-            return RandomProjectionIndex(dimension=library.embedding_dimension)
-        raise ValueError(f"Unsupported index kind: {library.index_kind}")
+        index_classes = {"flat": FlatIndex, "random_projection": RandomProjectionIndex}
+        if library.index_kind not in index_classes:
+            raise ValueError(f"Unsupported index kind: {library.index_kind}")
+        return index_classes[library.index_kind](dimension=library.embedding_dimension)

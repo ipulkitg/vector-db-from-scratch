@@ -41,7 +41,8 @@ def test_full_library_document_chunk_flow() -> None:
 
     list_chunks_resp = test_client.get(f"/documents/{document_id}/chunks")
     assert list_chunks_resp.status_code == 200
-    chunk_ids = {chunk["id"] for chunk in list_chunks_resp.json()}
+    paginated_data = list_chunks_resp.json()
+    chunk_ids = {chunk["id"] for chunk in paginated_data["items"]}
     assert chunk_id in chunk_ids
 
     search_resp = test_client.post(
@@ -96,3 +97,74 @@ def test_library_creation_accepts_index_kind() -> None:
     assert response.status_code == 201
     body = response.json()
     assert body["index_kind"] == "random_projection"
+
+
+def test_pagination_on_libraries() -> None:
+    """Test pagination parameters work on library list endpoint."""
+    test_client = client()
+    # Create 5 libraries
+    for i in range(5):
+        test_client.post(
+            "/libraries",
+            json={"name": f"Library {i}", "embedding_dimension": 3},
+        )
+
+    # Get first page (2 items)
+    resp = test_client.get("/libraries?skip=0&limit=2")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 5
+    assert len(data["items"]) == 2
+    assert data["skip"] == 0
+    assert data["limit"] == 2
+    assert data["has_more"] is True
+
+    # Get last page
+    resp = test_client.get("/libraries?skip=4&limit=2")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 5
+    assert len(data["items"]) == 1
+    assert data["has_more"] is False
+
+
+def test_batch_chunk_creation() -> None:
+    """Test creating multiple chunks in a single batch request."""
+    test_client = client()
+
+    # Create library and document
+    library_resp = test_client.post(
+        "/libraries", json={"name": "Batch Test", "embedding_dimension": 3}
+    )
+    library_id = library_resp.json()["id"]
+
+    document_resp = test_client.post(
+        "/documents", json={"library_id": library_id, "name": "Batch Doc"}
+    )
+    document_id = document_resp.json()["id"]
+
+    # Batch create 3 chunks
+    batch_payload = {
+        "document_id": document_id,
+        "chunks": [
+            {
+                "document_id": document_id,
+                "text": f"Chunk {i}",
+                "embedding": [float(i), 0.0, 0.0],
+                "metadata": {"index": i},
+                "chunk_index": i,
+            }
+            for i in range(3)
+        ],
+    }
+
+    batch_resp = test_client.post("/chunks/batch", json=batch_payload)
+    assert batch_resp.status_code == 201
+    data = batch_resp.json()
+    assert data["created_count"] == 3
+    assert len(data["chunk_ids"]) == 3
+
+    # Verify chunks were created
+    list_resp = test_client.get(f"/documents/{document_id}/chunks")
+    assert list_resp.status_code == 200
+    assert len(list_resp.json()["items"]) == 3

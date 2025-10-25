@@ -4,8 +4,13 @@ from typing import List, Optional
 from uuid import UUID
 
 from .entities import Chunk, Document, Library, Metadata
+from .exceptions import (
+    ChunkNotFoundError,
+    DocumentNotFoundError,
+    InvalidSearchParameterError,
+    LibraryNotFoundError,
+)
 from .repositories import ChunkRepository, DocumentRepository, LibraryRepository
-from .vector_store import DistanceResult
 from .schemas import (
     ChunkCreate,
     ChunkUpdate,
@@ -14,6 +19,7 @@ from .schemas import (
     LibraryCreate,
     LibraryUpdate,
 )
+from .vector_store import DistanceResult
 
 
 class LibraryService:
@@ -44,7 +50,7 @@ class LibraryService:
     def _require_library(self, library_id: UUID) -> Library:
         library = self._repository.get(library_id)
         if not library:
-            raise ValueError(f"Library {library_id} not found")
+            raise LibraryNotFoundError(library_id)
         return library
 
 
@@ -78,13 +84,13 @@ class DocumentService:
     def _ensure_library(self, library_id: UUID) -> Library:
         library = self._libraries.get(library_id)
         if not library:
-            raise ValueError(f"Library {library_id} not found")
+            raise LibraryNotFoundError(library_id)
         return library
 
     def _require_document(self, document_id: UUID) -> Document:
         document = self._repository.get(document_id)
         if not document:
-            raise ValueError(f"Document {document_id} not found")
+            raise DocumentNotFoundError(document_id)
         return document
 
 
@@ -135,6 +141,26 @@ class ChunkService:
     def delete_chunk(self, chunk_id: UUID) -> bool:
         return self._repository.delete(chunk_id)
 
+    def create_chunks_batch(self, chunks_data: List[ChunkCreate]) -> List[Chunk]:
+        """Create multiple chunks atomically for the same document."""
+        if not chunks_data:
+            return []
+
+        document_ids = {chunk.document_id for chunk in chunks_data}
+        if len(document_ids) > 1:
+            raise ValueError("All chunks in a batch must belong to the same document")
+
+        document = self._ensure_document(chunks_data[0].document_id)
+        library = self._ensure_library(document.library_id)
+
+        for chunk_data in chunks_data:
+            library.validate_chunk_embedding(chunk_data.embedding)
+
+        return [
+            self._repository.add(Chunk(**chunk_data.model_dump()))
+            for chunk_data in chunks_data
+        ]
+
     def search_chunks(
         self,
         library_id: UUID,
@@ -142,6 +168,9 @@ class ChunkService:
         k: int = 10,
         metadata_filters: Optional[Metadata] = None,
     ) -> List[DistanceResult]:
+        if k <= 0:
+            raise InvalidSearchParameterError("k", k, "must be positive")
+
         library = self._ensure_library(library_id)
         library.validate_chunk_embedding(query_vector)
         return self._repository.search(
@@ -154,19 +183,19 @@ class ChunkService:
     def _ensure_document(self, document_id: UUID) -> Document:
         document = self._documents.get(document_id)
         if not document:
-            raise ValueError(f"Document {document_id} not found")
+            raise DocumentNotFoundError(document_id)
         return document
 
     def _ensure_library(self, library_id: UUID) -> Library:
         library = self._libraries.get(library_id)
         if not library:
-            raise ValueError(f"Library {library_id} not found")
+            raise LibraryNotFoundError(library_id)
         return library
 
     def _require_chunk(self, chunk_id: UUID) -> Chunk:
         chunk = self._repository.get(chunk_id)
         if not chunk:
-            raise ValueError(f"Chunk {chunk_id} not found")
+            raise ChunkNotFoundError(chunk_id)
         return chunk
 
 

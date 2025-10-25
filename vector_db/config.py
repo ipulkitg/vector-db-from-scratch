@@ -1,6 +1,7 @@
 """Configuration management for the vector database."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +19,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Logging configuration
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -33,5 +38,18 @@ class Settings(BaseSettings):
             (self.data_dir / "chunks").mkdir(exist_ok=True)
             (self.data_dir / "indexes").mkdir(exist_ok=True)
 
+    def configure_logging(self) -> None:
+        """Configure application logging based on settings."""
+        logging.basicConfig(
+            level=getattr(logging, self.log_level),
+            format=self.log_format,
+            force=True,  # Override any existing configuration
+        )
 
-__all__ = ["Settings"]
+
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger instance for a module."""
+    return logging.getLogger(f"vector_db.{name}")
+
+
+__all__ = ["Settings", "get_logger"]

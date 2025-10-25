@@ -95,9 +95,7 @@ class Document(BaseEntity):
         self.update_timestamp()
 
     def decrement_chunk_count(self) -> None:
-        if self.chunk_count == 0:
-            return
-        self.chunk_count -= 1
+        self.chunk_count = max(0, self.chunk_count - 1)
         self.update_timestamp()
 
     model_config = ConfigDict(validate_assignment=True)
@@ -152,9 +150,7 @@ class Library(BaseEntity):
         self.update_timestamp()
 
     def decrement_document_count(self) -> None:
-        if self.document_count == 0:
-            return
-        self.document_count -= 1
+        self.document_count = max(0, self.document_count - 1)
         self.update_timestamp()
 
     def add_chunks(self, count: int) -> None:

@@ -1,23 +1,25 @@
 # Vector Database
 
-A production-ready Python vector database with clean architecture, multiple indexing strategies, and configurable persistence.
+A production-ready Python vector database with clean architecture, dual storage backends, and multiple indexing strategies.
 
 ## Features
 
-- ✅ **Full CRUD operations** for libraries, documents, and chunks
-- ✅ **Vector similarity search** with k-NN retrieval
-- ✅ **Multiple distance metrics**: Cosine, Euclidean, Dot Product
-- ✅ **Two indexing algorithms**:
+- **Full CRUD operations** for libraries, documents, and chunks
+- **Vector similarity search** with k-NN retrieval
+- **Multiple distance metrics**: Cosine, Euclidean, Dot Product
+- **Two indexing algorithms**:
   - FlatIndex (exact brute-force search)
   - RandomProjectionIndex (approximate LSH-based search)
-- ✅ **Dual storage backends**:
+- **Dual storage backends**:
   - In-memory (fast, volatile)
   - Disk-based (persistent, survives restarts)
-- ✅ **Metadata filtering** on search results
-- ✅ **Thread-safe** with RLock-based concurrency
-- ✅ **Type-safe** with full Pydantic validation
-- ✅ **RESTful API** with FastAPI
-- ✅ **Clean architecture** with Repository and Service patterns
+- **Pre-search metadata filtering** for efficient queries
+- **Pagination** on all list endpoints
+- **Batch operations** (create up to 1000 chunks atomically)
+- **Structured logging** with configurable levels
+- **Thread-safe** with RLock-based concurrency
+- **Type-safe** with full Pydantic validation
+- **RESTful API** with FastAPI
 
 ## Quick Start
 
@@ -30,9 +32,6 @@ cd stack-try2
 
 # Install dependencies
 uv sync
-
-# Or with dev dependencies
-uv sync --all-extras
 ```
 
 ### Running the Server
@@ -44,298 +43,96 @@ uvicorn vector_db.api:create_app --factory --reload
 
 **Disk persistence mode:**
 ```bash
-# Create .env file
 echo "STORAGE_TYPE=disk" > .env
-echo "DATA_DIR=./data" >> .env
-
-# Start server
 uvicorn vector_db.api:create_app --factory --reload
 ```
 
-The API will be available at `http://localhost:8000`.
+API available at `http://localhost:8000` | Docs at `http://localhost:8000/docs`
 
-**Interactive API docs:** http://localhost:8000/docs
-
-## Usage Examples
-
-### Python SDK
+## Usage Example
 
 ```python
-from vector_db.config import Settings
-from vector_db.api import create_app
 from fastapi.testclient import TestClient
+from vector_db.api import create_app
 
-# Create app with disk persistence
-settings = Settings(storage_type="disk", data_dir="./my_data")
-app = create_app(settings)
-client = TestClient(app)
+client = TestClient(create_app())
 
 # Create a library
 library = client.post("/libraries", json={
     "name": "My Embeddings",
     "embedding_dimension": 384,
-    "distance_metric": "cosine",
-    "index_kind": "flat"  # or "random_projection"
+    "distance_metric": "cosine"
 }).json()
-
-library_id = library["id"]
 
 # Create a document
 document = client.post("/documents", json={
-    "library_id": library_id,
-    "name": "My Document",
-    "metadata": {"source": "pdf", "page": 1}
+    "library_id": library["id"],
+    "name": "Document 1"
 }).json()
-
-document_id = document["id"]
 
 # Add chunks with embeddings
 chunk = client.post("/chunks", json={
-    "document_id": document_id,
-    "text": "This is a sample text chunk",
-    "embedding": [0.1, 0.2, 0.3, ...],  # 384-dimensional vector
-    "chunk_index": 0,
-    "metadata": {"type": "paragraph"}
+    "document_id": document["id"],
+    "text": "Sample text",
+    "embedding": [0.1, 0.2, ...],  # 384-dimensional
+    "chunk_index": 0
 }).json()
 
 # Search for similar vectors
-results = client.post(f"/libraries/{library_id}/search", json={
-    "query_vector": [0.15, 0.18, 0.35, ...],
-    "k": 10
+results = client.post(f"/libraries/{library['id']}/search", json={
+    "query_vector": [0.15, 0.18, ...],
+    "k": 10,
+    "metadata_filters": {"category": "tech"}  # optional
 }).json()
-
-for result in results:
-    print(f"Chunk {result['chunk_id']}: distance = {result['distance']}")
-```
-
-### cURL Examples
-
-```bash
-# Create a library
-curl -X POST http://localhost:8000/libraries \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Text Embeddings",
-    "embedding_dimension": 128,
-    "distance_metric": "cosine"
-  }'
-
-# List all libraries
-curl http://localhost:8000/libraries
-
-# Search vectors
-curl -X POST http://localhost:8000/libraries/{library_id}/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query_vector": [0.1, 0.2, 0.3, ...],
-    "k": 5
-  }'
-```
-
-## Configuration
-
-Create a `.env` file in the project root:
-
-```env
-# Storage backend: "memory" or "disk"
-STORAGE_TYPE=disk
-
-# Data directory for disk storage
-DATA_DIR=./data
-
-# Server settings
-HOST=0.0.0.0
-PORT=8000
-```
-
-Or use environment variables:
-```bash
-export STORAGE_TYPE=disk
-export DATA_DIR=/var/lib/vectordb
-uvicorn vector_db.api:create_app --factory
 ```
 
 ## Architecture
 
+The project follows clean architecture principles with clear separation of concerns:
+
 ```
-┌─────────────────────────────────────────────┐
-│           FastAPI Application               │
-│  (API Layer - Endpoints & Routing)          │
-└─────────────┬───────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────┐
-│          Service Layer                      │
-│  (Business Logic & Validation)              │
-│  - LibraryService                           │
-│  - DocumentService                          │
-│  - ChunkService                             │
-└─────────────┬───────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────┐
-│       Repository Layer                      │
-│  (Storage Abstraction via Protocols)        │
-│  - LibraryRepository                        │
-│  - DocumentRepository                       │
-│  - ChunkRepository                          │
-└─────────────┬───────────────────────────────┘
-              │
-        ┌─────┴──────┐
-        ▼            ▼
-┌──────────────┐  ┌──────────────┐
-│ VectorStore  │  │ DiskVector   │
-│ (In-Memory)  │  │ Store (Disk) │
-└──────┬───────┘  └──────┬───────┘
-       │                 │
-       ▼                 ▼
-┌─────────────────────────────────┐
-│      Vector Indexes             │
-│  - FlatIndex (exact)            │
-│  - RandomProjectionIndex (LSH)  │
-└─────────────────────────────────┘
+┌─────────────────────────────────────┐
+│      API Layer (FastAPI)            │  ← HTTP endpoints, routing
+├─────────────────────────────────────┤
+│      Service Layer                  │  ← Business logic, validation
+│  LibraryService | DocumentService   │
+│       ChunkService                  │
+├─────────────────────────────────────┤
+│      Repository Layer               │  ← Storage abstraction
+│  (Protocols for swappable backends) │
+├─────────────────────────────────────┤
+│   VectorStore    │  DiskVectorStore │  ← Storage implementations
+│   (In-Memory)    │  (Persistent)    │
+├─────────────────────────────────────┤
+│      Vector Indexes                 │  ← Search algorithms
+│  FlatIndex | RandomProjectionIndex  │
+└─────────────────────────────────────┘
 ```
 
-### Key Design Patterns
+**Key Design Decisions:**
 
-- **Repository Pattern**: Abstracts storage details, allows swapping backends
-- **Service Layer**: Encapsulates business logic, coordinates repositories
+- **Repository Pattern**: Enables swapping storage backends (memory ↔ disk) without changing business logic
+- **Service Layer**: Coordinates multiple repositories, enforces business rules (dimension validation, parent existence)
+- **Protocol-based Interfaces**: Python Protocols for structural subtyping (no ABC inheritance)
+- **Strategy Pattern**: Multiple index implementations selected at runtime
 - **Dependency Injection**: FastAPI `Depends()` wires components cleanly
-- **Protocol-based Interfaces**: Python Protocols for structural subtyping
-- **Strategy Pattern**: Multiple index implementations (Flat, RandomProjection)
-
-## Data Model
-
-```
-Library (Collection)
-  ├── embedding_dimension: int
-  ├── distance_metric: "cosine" | "euclidean" | "dot_product"
-  ├── index_kind: "flat" | "random_projection"
-  └── Documents[]
-       └── Chunks[]
-            ├── text: str
-            ├── embedding: List[float]
-            ├── metadata: Dict[str, str|int|float|bool]
-            └── chunk_index: int
-```
-
-## Indexing Algorithms
-
-### FlatIndex (Exact Search)
-- **Algorithm**: Brute-force comparison against all vectors
-- **Time Complexity**: O(n × d) where n = vectors, d = dimensions
-- **Space Complexity**: O(n × d)
-- **Accuracy**: 100% (exact results)
-- **Best for**: <10K vectors, exact results required
-
-### RandomProjectionIndex (Approximate Search)
-- **Algorithm**: Locality-Sensitive Hashing (LSH) with random hyperplanes
-- **Time Complexity**: O(√n × d) average case
-- **Space Complexity**: O(n × d + p × d) where p = projections
-- **Accuracy**: ~95% (configurable via num_projections)
-- **Best for**: >10K vectors, speed prioritized
-
-## Disk Persistence Format
-
-When using `STORAGE_TYPE=disk`, data is stored in:
-
-```
-data/
-├── libraries/
-│   └── {library_id}.json          # Library metadata
-├── documents/
-│   └── {document_id}.json         # Document metadata
-├── chunks/
-│   └── {chunk_id}.json            # Chunk text + metadata
-└── indexes/
-    ├── {library_id}.json          # Index metadata
-    ├── {library_id}.npy           # Vector embeddings (NumPy)
-    └── {library_id}.projections.npy  # Random projections (if LSH)
-```
-
-### Persistence Features
-
-- **Lazy Loading**: Data loaded on first access
-- **Atomic Writes**: Each entity written to separate file
-- **Index Serialization**: NumPy binary format for vectors
-- **Survives Restarts**: Full state restored from disk
-
-## Testing
-
-```bash
-# Run all tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=vector_db --cov-report=term-missing
-
-# Run specific test file
-uv run pytest tests/test_disk_persistence.py -v
-
-# Run tests matching pattern
-uv run pytest -k "test_search"
-```
-
-Test coverage: **~85%** across all layers.
-
-## API Reference
-
-### Libraries
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/libraries` | Create a new library |
-| GET | `/libraries` | List all libraries |
-| GET | `/libraries/{id}` | Get library by ID |
-| PATCH | `/libraries/{id}` | Update library |
-| DELETE | `/libraries/{id}` | Delete library (cascades) |
-| GET | `/libraries/{id}/documents` | List library's documents |
-| POST | `/libraries/{id}/search` | Search vectors in library |
-
-### Documents
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/documents` | Create a new document |
-| GET | `/documents/{id}` | Get document by ID |
-| PATCH | `/documents/{id}` | Update document |
-| DELETE | `/documents/{id}` | Delete document (cascades) |
-| GET | `/documents/{id}/chunks` | List document's chunks |
-
-### Chunks
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/chunks` | Create a new chunk |
-| GET | `/chunks/{id}` | Get chunk by ID |
-| PATCH | `/chunks/{id}` | Update chunk (including embedding) |
-| DELETE | `/chunks/{id}` | Delete chunk |
-
-## Performance Characteristics
-
-| Operation | VectorStore | DiskVectorStore |
-|-----------|-------------|-----------------|
-| Add chunk | O(d) | O(d) + disk write |
-| Get by ID | O(1) | O(1) + lazy load |
-| Search (Flat) | O(n×d) | O(n×d) + lazy load |
-| Search (LSH) | O(√n×d) | O(√n×d) + lazy load |
-| Cascade delete | O(n×m) | O(n×m) + disk deletes |
 
 ## Project Structure
 
 ```
 vector_db/
-├── entities.py          # Domain models (Pydantic)
-├── schemas.py           # API DTOs (Request/Response)
+├── entities.py          # Domain models (Library, Document, Chunk)
+├── schemas.py           # API DTOs (Request/Response models)
 ├── indexes.py           # Vector search algorithms
-├── vector_store.py      # In-memory storage
-├── disk_store.py        # Disk-backed storage
-├── repositories.py      # Repository implementations
+├── vector_store.py      # In-memory storage implementation
+├── disk_store.py        # Disk-backed storage implementation
+├── repositories.py      # Repository interfaces & implementations
 ├── services.py          # Business logic layer
-├── api.py               # FastAPI routes
-└── config.py            # Settings management
+├── api.py               # FastAPI routes & dependency injection
+├── exceptions.py        # Custom exception hierarchy
+└── config.py            # Settings & logging configuration
 
-tests/
+tests/                   # 55 tests, ~85% coverage
 ├── test_entities.py
 ├── test_indexes.py
 ├── test_vector_store.py
@@ -344,70 +141,226 @@ tests/
 └── test_api.py
 ```
 
-## Dependencies
+## Data Model
 
-- **FastAPI** (>=0.110): Web framework
-- **Pydantic** (>=2.11): Data validation
-- **Pydantic-Settings** (>=2.0): Configuration management
-- **NumPy** (>=1.26): Vector operations
-
-**Dev Dependencies:**
-- **pytest** (>=8.2): Testing framework
-- **httpx** (>=0.27): HTTP client for tests
-
-## Design Decisions
-
-See [DESIGN_DECISONS.md](DESIGN_DECISONS.md) for detailed rationale on:
-- Storage layer architecture
-- Concurrency strategy (RLock vs RWLock)
-- Indexing algorithms (FlatIndex vs RandomProjection)
-- Persistence format (JSON + NumPy binary)
-- Repository pattern implementation
-
-## Development
-
-```bash
-# Install with dev dependencies
-uv sync --all-extras
-
-# Run tests in watch mode
-uv run pytest-watch
-
-# Format code
-uv run black vector_db tests
-
-# Type checking
-uv run mypy vector_db
-
-# Start development server
-uvicorn vector_db.api:create_app --factory --reload
+```
+Library (Collection of documents)
+  ├── embedding_dimension: int         # e.g., 384 for sentence-transformers
+  ├── distance_metric: str             # "cosine", "euclidean", "dot_product"
+  ├── index_kind: str                  # "flat", "random_projection"
+  └── Documents[]
+       ├── name: str
+       ├── metadata: Dict[str, Any]
+       └── Chunks[]
+            ├── text: str              # Original text content
+            ├── embedding: List[float] # Vector representation
+            ├── metadata: Dict         # Filterable key-value pairs
+            └── chunk_index: int       # Position in document
 ```
 
-## Roadmap
+**Hierarchy:**
+- **Library**: Enforces consistent embedding dimension and distance metric
+- **Document**: Logical grouping of related chunks
+- **Chunk**: Text piece with vector embedding (searchable unit)
 
-- [ ] Batch operations API (add multiple chunks atomically)
-- [ ] Advanced indexes (IVF, HNSW, Product Quantization)
-- [ ] Query-time metadata filtering (pre-search)
-- [ ] Pagination for list endpoints
-- [ ] Compression for vector storage
-- [ ] Write-ahead logging for disk store
-- [ ] Distributed deployment with leader-follower
-- [ ] Temporal workflows for background tasks
+## Indexing Algorithms
+
+### FlatIndex (Exact Search)
+- **Algorithm**: Brute-force comparison against all vectors
+- **Complexity**: O(n × d) where n = vectors, d = dimensions
+- **Accuracy**: 100% (exact results)
+- **Best for**: <10K vectors, exact results required
+
+### RandomProjectionIndex (LSH - Approximate Search)
+- **Algorithm**: Locality-Sensitive Hashing with random hyperplanes
+- **Complexity**: O(√n × d) average case
+- **Accuracy**: ~95% (configurable via num_projections)
+- **Best for**: >10K vectors, speed prioritized
+
+**Note:** Index type selected at library creation via `index_kind` parameter.
+
+## Configuration
+
+Create a `.env` file:
+
+```env
+# Storage backend
+STORAGE_TYPE=disk                    # "memory" or "disk"
+DATA_DIR=./data                      # Directory for disk storage
+
+# Server settings
+HOST=0.0.0.0
+PORT=8000
+
+# Logging
+LOG_LEVEL=INFO                       # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+```
+
+## API Reference
+
+### Core Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| **Libraries** |
+| POST | `/libraries` | Create library with embedding dimension & distance metric |
+| GET | `/libraries?skip=0&limit=100` | List libraries (paginated) |
+| GET | `/libraries/{id}` | Get library details |
+| PATCH | `/libraries/{id}` | Update library metadata |
+| DELETE | `/libraries/{id}` | Delete library (cascades to documents/chunks) |
+| POST | `/libraries/{id}/search` | Search vectors with optional metadata filters |
+| **Documents** |
+| POST | `/documents` | Create document in a library |
+| GET | `/documents/{id}` | Get document details |
+| GET | `/documents/{id}/chunks?skip=0&limit=100` | List chunks (paginated) |
+| **Chunks** |
+| POST | `/chunks` | Create single chunk |
+| POST | `/chunks/batch` | Batch create up to 1000 chunks |
+| GET | `/chunks/{id}` | Get chunk (excludes embedding for bandwidth) |
+| PATCH | `/chunks/{id}` | Update chunk (text, embedding, metadata) |
+
+**Search Request:**
+```json
+{
+  "query_vector": [0.1, 0.2, ...],
+  "k": 10,
+  "metadata_filters": {"category": "tech"}  // optional pre-filter
+}
+```
+
+**Search Response:**
+```json
+[
+  {"chunk_id": "uuid", "distance": 0.23},
+  {"chunk_id": "uuid", "distance": 0.45}
+]
+```
+
+## Disk Persistence
+
+When `STORAGE_TYPE=disk`, data is stored in:
+
+```
+data/
+├── libraries/{library_id}.json          # Library metadata
+├── documents/{document_id}.json         # Document metadata
+├── chunks/{chunk_id}.json               # Chunk text + metadata (no embedding)
+└── indexes/
+    ├── {library_id}.json                # Index metadata
+    ├── {library_id}.npy                 # Embeddings (NumPy binary)
+    └── {library_id}.projections.npy     # Random projections (LSH only)
+```
+
+**Design rationale:**
+- JSON for structured metadata (human-readable)
+- NumPy binary (`.npy`) for vector embeddings (space-efficient)
+- Embeddings stored in index, not chunk files (avoids duplication)
+- Lazy loading: data loaded on first access
+
+## Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# With coverage report
+uv run pytest --cov=vector_db --cov-report=term-missing
+
+# Specific test file
+uv run pytest tests/test_disk_persistence.py -v
+```
+
+**Test Coverage:** ~85% across all layers (entities, indexes, stores, services, API)
+
+## Advanced Features
+
+### Pagination
+All list endpoints return paginated responses:
+```python
+response = client.get("/libraries?skip=10&limit=20")
+# {"items": [...], "total": 100, "skip": 10, "limit": 20, "has_more": true}
+```
+
+### Batch Operations
+Create multiple chunks atomically:
+```python
+client.post("/chunks/batch", json={
+    "document_id": "uuid",
+    "chunks": [
+        {"document_id": "uuid", "text": "Chunk 1", "embedding": [...], "chunk_index": 0},
+        {"document_id": "uuid", "text": "Chunk 2", "embedding": [...], "chunk_index": 1}
+    ]
+})
+# Response: {"created_count": 2, "chunk_ids": ["uuid1", "uuid2"]}
+```
+
+### Metadata Filtering
+Pre-search filtering (more efficient than post-filtering):
+```python
+# Only searches chunks matching metadata filters
+results = client.post(f"/libraries/{id}/search", json={
+    "query_vector": [...],
+    "k": 10,
+    "metadata_filters": {"source": "pdf", "page": 5}
+})
+```
+
+### Structured Logging
+```bash
+export LOG_LEVEL=DEBUG
+uvicorn vector_db.api:create_app --factory
+
+# Logs: startup, CRUD operations, search queries, errors
+```
+
+## Dependencies
+
+**Core:**
+- FastAPI (>=0.110) - Web framework
+- Pydantic (>=2.11) - Data validation
+- NumPy (>=1.26) - Vector operations
+- Pydantic-Settings (>=2.0) - Configuration
+
+**Dev:**
+- pytest (>=8.2) - Testing framework
+- httpx (>=0.27) - HTTP client for tests
+
+## Performance Characteristics
+
+| Operation | In-Memory | Disk |
+|-----------|-----------|------|
+| Add chunk | O(d) | O(d) + disk write |
+| Get by ID | O(1) | O(1) + lazy load |
+| Search (Flat) | O(n×d) | O(n×d) + lazy load |
+| Search (LSH) | O(√n×d) | O(√n×d) + lazy load |
+
+**Concurrency:** Thread-safe via RLock (single process). For distributed deployment, use leader-follower pattern.
+
+## Design Highlights
+
+**Why this architecture?**
+- **Pythonic**: Idiomatic Python (walrus operator, comprehensions, protocols)
+- **Testable**: Dependency injection enables easy mocking
+- **Extensible**: Add new indexes by implementing `VectorIndex` protocol
+- **Type-safe**: Full type hints + Pydantic runtime validation
+- **Production-ready**: Error handling, logging, persistence, testing
+
+**Key Tradeoffs:**
+- **RLock vs RWLock**: Chose RLock for simplicity; writes are fast enough
+- **JSON + NumPy vs SQLite**: Easier to debug, simpler implementation
+- **Pre-filtering vs Post-filtering**: Pre-filtering is more efficient
+- **Repository pattern overhead**: Worth it for storage flexibility
 
 ## License
 
 MIT
 
-## Author
+---
 
-Built as a take-home assignment demonstrating:
-- Clean software architecture
-- Type-safe Python code
-- Comprehensive testing
-- Production-ready features (persistence, multiple indexes)
-- Clear documentation
-
-For design decisions and implementation details, see:
-- [DESIGN_DECISONS.md](DESIGN_DECISONS.md) - Architecture rationale
-- [DEVELOPMENT.md](DEVELOPMENT.md) - Development setup
-- [goals.md](goals.md) - Project requirements
+**Built to demonstrate:**
+- Clean software architecture (Repository, Service, DI patterns)
+- Type-safe Python with Pydantic
+- Production features (persistence, multiple indexes, logging)
+- Comprehensive testing (~85% coverage)
+- Clear, concise documentation

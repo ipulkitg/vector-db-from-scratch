@@ -200,9 +200,7 @@ class DiskChunkRepository(ChunkRepository):
         k: int = 10,
         metadata_filters: Optional[Metadata] = None,
     ) -> List[DistanceResult]:
-        # Note: DiskVectorStore search doesn't support metadata_filters yet
-        # This matches the in-memory implementation
-        return self.store.search(library_id, query_vector, k)
+        return self.store.search(library_id, query_vector, k, metadata_filters=metadata_filters)
 
 
 __all__ = [

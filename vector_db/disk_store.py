@@ -9,7 +9,7 @@ from uuid import UUID
 
 import numpy as np
 
-from .entities import Chunk, Document, Library
+from .entities import Chunk, Document, Library, Metadata
 from .indexes import DistanceResult, FlatIndex, RandomProjectionIndex
 
 VectorIndexType = Union[FlatIndex, RandomProjectionIndex]
@@ -87,18 +87,15 @@ class DiskVectorStore:
         """Load a vector index from disk."""
         index_path = self.data_dir / "indexes" / str(library_id)
 
-        if index_kind == "flat":
-            if index_path.with_suffix(".json").exists():
-                self._vector_index[library_id] = FlatIndex.load(index_path)
-            else:
-                self._vector_index[library_id] = FlatIndex(dimension=dimension)
-        elif index_kind == "random_projection":
-            if index_path.with_suffix(".json").exists():
-                self._vector_index[library_id] = RandomProjectionIndex.load(index_path)
-            else:
-                self._vector_index[library_id] = RandomProjectionIndex(dimension=dimension)
-        else:
+        index_classes = {"flat": FlatIndex, "random_projection": RandomProjectionIndex}
+        if index_kind not in index_classes:
             raise ValueError(f"Unknown index kind: {index_kind}")
+
+        index_cls = index_classes[index_kind]
+        self._vector_index[library_id] = (
+            index_cls.load(index_path) if index_path.with_suffix(".json").exists()
+            else index_cls(dimension=dimension)
+        )
 
     def _save_library(self, library: Library) -> None:
         """Persist a library to disk."""
@@ -145,7 +142,6 @@ class DiskVectorStore:
         path = self.data_dir / "chunks" / f"{chunk_id}.json"
         path.unlink(missing_ok=True)
 
-    # Library operations
     def add_library(self, library: Library) -> Library:
         with self._lock:
             self._load_all()
@@ -155,15 +151,13 @@ class DiskVectorStore:
 
             self._libraries[library.id] = library
 
-            # Create appropriate index
-            if library.index_kind == "flat":
-                self._vector_index[library.id] = FlatIndex(dimension=library.embedding_dimension)
-            elif library.index_kind == "random_projection":
-                self._vector_index[library.id] = RandomProjectionIndex(
-                    dimension=library.embedding_dimension
-                )
-            else:
+            index_classes = {"flat": FlatIndex, "random_projection": RandomProjectionIndex}
+            if library.index_kind not in index_classes:
                 raise ValueError(f"Unknown index kind: {library.index_kind}")
+
+            self._vector_index[library.id] = index_classes[library.index_kind](
+                dimension=library.embedding_dimension
+            )
 
             self._save_library(library)
             self._save_index(library.id)
@@ -202,14 +196,10 @@ class DiskVectorStore:
                 existing.embedding_dimension != updated_library.embedding_dimension
                 or existing.index_kind != updated_library.index_kind
             ):
-                if updated_library.index_kind == "flat":
-                    self._vector_index[library_id] = FlatIndex(
-                        dimension=updated_library.embedding_dimension
-                    )
-                elif updated_library.index_kind == "random_projection":
-                    self._vector_index[library_id] = RandomProjectionIndex(
-                        dimension=updated_library.embedding_dimension
-                    )
+                index_classes = {"flat": FlatIndex, "random_projection": RandomProjectionIndex}
+                self._vector_index[library_id] = index_classes[updated_library.index_kind](
+                    dimension=updated_library.embedding_dimension
+                )
 
             updated_library.update_timestamp()
             self._libraries[library_id] = updated_library
@@ -417,7 +407,13 @@ class DiskVectorStore:
             return True
 
     # Search operations
-    def search(self, library_id: UUID, query_vector: List[float], k: int = 10) -> List[DistanceResult]:
+    def search(
+        self,
+        library_id: UUID,
+        query_vector: List[float],
+        k: int = 10,
+        metadata_filters: Optional[Metadata] = None,
+    ) -> List[DistanceResult]:
         with self._lock:
             self._load_all()
 
@@ -433,7 +429,27 @@ class DiskVectorStore:
             index = self._vector_index.get(library_id)
             if index is None:
                 return []
-            return index.search(query, k, library.distance_metric)
+
+            # Pre-filter chunks by metadata before searching
+            allowed_ids: Optional[Set[UUID]] = None
+            if metadata_filters:
+                doc_ids = {doc.id for doc in self._documents.values() if doc.library_id == library_id}
+                allowed_ids = {
+                    chunk_id
+                    for chunk_id, chunk in self._chunks.items()
+                    if chunk.document_id in doc_ids and self._metadata_matches(chunk, metadata_filters)
+                }
+                if not allowed_ids:
+                    return []
+
+            return index.search(query, k, library.distance_metric, allowed_ids=allowed_ids)
+
+    def _metadata_matches(self, chunk: Chunk, filters: Metadata) -> bool:
+        """Check if a chunk's metadata matches all filter criteria."""
+        for key, expected in filters.items():
+            if chunk.metadata.get(key) != expected:
+                return False
+        return True
 
 
 __all__ = ["DiskVectorStore"]
